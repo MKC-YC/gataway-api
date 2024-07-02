@@ -1,0 +1,15 @@
+docker pull python:3.12.0
+
+vim /etc/docker/daemon.json
+
+/home/gateway-api-yc/py-proj/bwoil-gataway-api-dev
+
+docker images | grep python
+
+docker images | grep bwoil
+
+docker rmi -f b057b8fe2276
+
+docker build -t bwoil-gataway-api-dev:1.0 .
+
+docker run -p 8088:8088 bwoil-gataway-api-dev:1.0
