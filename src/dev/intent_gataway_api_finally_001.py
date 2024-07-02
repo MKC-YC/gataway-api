@@ -103,12 +103,12 @@ def call_third_party_attendance_api(question, user_id, user_role, topic_id):
         client = sseclient.SSEClient(final_url)
         for msg in client:
             if msg.event == 'close' or msg.data == '[DONE]':
-                yield "event: [DONE]\ndata: {data: [DONE], type: 2}"
+                yield "event: [DONE]\ndata: {data: [DONE], type: 1}"
                 break
-            yield f"data: {{data: {msg.data}, type: 1}}"
+            yield f"data: {{data: {msg.data}}}"
         print("考勤API调用成功，响应数据:", client)
     except requests.exceptions.RequestException as e:
-        yield f"data: {{\"error\": \"{str(e)}\", \"type\": 0}}"
+        yield f"data: {{\"error\": \"{str(e)}\"}}"
 
 
 # 知识库 2024年7月1日14:56:29
@@ -128,7 +128,7 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id)
                 async for line in response.content:
                     line = line.decode('utf-8').strip()
                     if "data:[DONE]" in line:
-                        yield "event: [DONE]: {\"data\": \"[DONE]\", \"type\": 3}"
+                        yield "event: [DONE]: {\"data\": \"[DONE]\", \"type\": 2}"
                         break
                     if line:
                         try:
@@ -152,26 +152,6 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id)
                             print(f"Invalid JSON: {line}")
             except asyncio.CancelledError:
                 logger.warning("Stream processing cancelled.")
-
-
-# 开放领域
-def process_open_domain_answer(openai_reply: str) -> str:
-    cleaned_reply = openai_reply.strip()
-    return cleaned_reply
-
-
-def get_openai_response(question: str) -> str:
-    # 发起文本完成请求
-    completion = openai.Completion.create(
-        prompt=question,
-        max_tokens=1024,
-        n=1,
-        stop=None,
-        temperature=0.5,
-    )
-
-    completed_text = completion.choices[0].text
-    return completed_text
 
 
 if __name__ == '__main__':
