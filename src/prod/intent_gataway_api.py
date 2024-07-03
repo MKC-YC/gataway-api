@@ -110,7 +110,7 @@ async def call_third_party_attendance_api(question, user_id, user_role, topic_id
                     # 确保yield的数据格式正确
                     try:
                         data = json.loads(line)
-                        data_with_type = {"type": 1, "data": data}
+                        data_with_type = {"data": data, "type": 1}
                         yield f"data: {json.dumps(data_with_type)}"
                     except json.JSONDecodeError:
                         yield f"data: {{\"error\": \"Invalid JSON format in response\"}}"
