@@ -87,6 +87,7 @@ def check_auth_role(agency_type, user_role):
     return allown_role_list is None or user_role in allown_role_list
 
 
+# 2024年7月3日17:31:36
 async def call_third_party_attendance_api(question, user_id, user_role, topic_id):
     if not check_auth_role("attendance", user_role):
         raise HTTPException(status_code=403, detail=ILLEGAL_AUTH_REFUSE)
