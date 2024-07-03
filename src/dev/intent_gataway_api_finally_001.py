@@ -1,18 +1,13 @@
-from datetime import time
 from urllib.parse import urlencode
-import openai
 from fastapi import FastAPI, HTTPException, Body
 from httpx import stream
 from pydantic import BaseModel
 from client import CustomOpenaiClient
 import requests, json
-import sseclient
 import aiohttp
 import asyncio
 import re
 from sse_starlette.sse import EventSourceResponse
-from asyncio.log import logger
-from flask import Flask, Response
 
 # 创建FastApi实例
 app = FastAPI()
@@ -23,7 +18,6 @@ ILLEGAL_AUTH_REFUSE = "很抱歉，根据您提供的查询条件，你不具有
 # 权限校验，根据用户角色和查询类型校验用户是否有权限进行访问
 auth_role_allown_map = {"attendance": ["Boss", "Assistant", "HR"],
                         "chat": ["Boss", "Assistant", "HR", "Manager", "Employee"]}
-user_intent = ["人力考勤专员", "前台助理", "前端助理", "石油业务专家"]
 
 
 # 创建请求体模型
@@ -74,12 +68,18 @@ async def user_intent_recognize(request_body: RequestBody = Body(...)):
     res = client.chat(prompt=prompt, sys_prompt=sys_prompt, generate_config=generate_config)
     print("res: " + str(res))
     if '考勤数据查询助理' in res:
-        return Response(call_third_party_attendance_api(question, user_id, user_role, topic_id))
+        return EventSourceResponse(call_third_party_attendance_api(question, user_id, user_role, topic_id),
+                                   media_type="text/event-stream")
     if '知识库助理' in res:
         return EventSourceResponse(call_third_party_knowledge_api(question, user_id, user_role, topic_id),
                                    media_type="text/event-stream")
     else:
-        return client.chat(prompt=question, generate_config=generate_config)
+        def chat_stream_generator():
+            for chunk in client.chat(prompt=question, generate_config=generate_config):
+                yield f"{{\"data\": {chunk},\"type\": 3}}"
+            yield f"{{\"data\": \"[DONE]\",\"type\": 3}}"
+
+        return EventSourceResponse(chat_stream_generator(), media_type="text/event-stream")
 
 
 def check_auth_role(agency_type, user_role):
@@ -87,7 +87,7 @@ def check_auth_role(agency_type, user_role):
     return allown_role_list is None or user_role in allown_role_list
 
 
-def call_third_party_attendance_api(question, user_id, user_role, topic_id):
+async def call_third_party_attendance_api(question, user_id, user_role, topic_id):
     if not check_auth_role("attendance", user_role):
         raise HTTPException(status_code=403, detail=ILLEGAL_AUTH_REFUSE)
     params = {
@@ -99,15 +99,22 @@ def call_third_party_attendance_api(question, user_id, user_role, topic_id):
     try:
         query_params = urlencode(params)
         final_url = f"{ATTENDANCE_BASE_URL}{query_params}"
-        # SSE流处理
-        client = sseclient.SSEClient(final_url)
-        for msg in client:
-            if msg.event == 'close' or msg.data == '[DONE]':
-                yield "event: [DONE]\ndata: {data: [DONE], type: 1}"
-                break
-            yield f"data: {{data: {msg.data}}}"
-        print("考勤API调用成功，响应数据:", client)
-    except requests.exceptions.RequestException as e:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(final_url) as response:
+                async for line in response.content:
+                    line = line.decode('utf-8').strip()
+                    # 检查SSE事件结束或关闭事件
+                    if line == '[DONE]' or line.startswith('event: close'):
+                        yield "event: [DONE]\ndata: {\"type\": 1, \"data\": \"[DONE]\"}"
+                        break
+                    # 确保yield的数据格式正确
+                    try:
+                        data = json.loads(line)
+                        yield f"data: {json.dumps(data)}"
+                    except json.JSONDecodeError:
+                        yield f"data: {{\"error\": \"Invalid JSON format in response\"}}"
+                print("考勤API调用成功，响应数据:", line)
+    except aiohttp.ClientError as e:
         yield f"data: {{\"error\": \"{str(e)}\"}}"
 
 
@@ -122,7 +129,6 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id)
     headers = {'Content-Type': 'application/json'}
     async with aiohttp.ClientSession() as session:
         async with session.post(KNOWLEDGE_BASE_URL, json=params, headers=headers) as response:
-            logger.info(f"response: {response}")
             print(f"response: {response}")
             try:
                 async for line in response.content:
@@ -142,7 +148,9 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id)
                                     yield json.dumps(data)
                                 # 继续处理"data:[summary]"等其他情况
                                 elif "data:[summary]" in data:
-                                    yield data["data:[summary]"]
+                                    summary_content = data.get("data:[summary]")
+                                    # 构造一个新的字典，包含"type"字段
+                                    yield json.dumps({"data": summary_content, "type": 2})
                             else:
                                 async for token in data:
                                     answer += token
@@ -151,7 +159,7 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id)
                         except json.JSONDecodeError:
                             print(f"Invalid JSON: {line}")
             except asyncio.CancelledError:
-                logger.warning("Stream processing cancelled.")
+                print(f"Error")
 
 
 if __name__ == '__main__':
