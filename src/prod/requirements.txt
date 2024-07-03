@@ -1,12 +1,8 @@
 fastapi
 httpx
 pydantic
-typing
-openai
 requests
-sseclient
 aiohttp
 asyncio
-sse_starlette
-asyncio
-flask
+openai
+sse_starlette==1.8.2
