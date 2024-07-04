@@ -77,7 +77,7 @@ async def user_intent_recognize(request_body: RequestBody = Body(...)):
         def chat_stream_generator():
             for chunk in client.chat(prompt=question, generate_config=generate_config):
                 yield json.dumps({"data": chunk, "type": 3})
-            yield json.dumps({"data": chunk, "type": 3})
+            yield json.dumps({"data": "[DONE]", "type": 3})
 
         return EventSourceResponse(chat_stream_generator(), media_type="text/event-stream")
 
