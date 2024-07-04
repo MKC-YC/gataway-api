@@ -76,8 +76,8 @@ async def user_intent_recognize(request_body: RequestBody = Body(...)):
     else:
         def chat_stream_generator():
             for chunk in client.chat(prompt=question, generate_config=generate_config):
-                yield f"{{\"data\": {chunk},\"type\": 3}}"
-            yield f"{{\"data\": \"[DONE]\",\"type\": 3}}"
+                yield json.dumps({"data": chunk, "type": 3})
+            yield json.dumps({"data": chunk, "type": 3})
 
         return EventSourceResponse(chat_stream_generator(), media_type="text/event-stream")
 
@@ -101,19 +101,20 @@ async def call_third_party_attendance_api(question, user_id, user_role, topic_id
         final_url = f"{ATTENDANCE_BASE_URL}{query_params}"
         async with aiohttp.ClientSession() as session:
             async with session.get(final_url) as response:
+                print(f"response: {response}")
                 async for line in response.content:
                     line = line.decode('utf-8').strip()
                     # 检查SSE事件结束或关闭事件
                     if line == '[DONE]' or line.startswith('event: close'):
-                        yield "event: [DONE]\ndata: {\"type\": 1, \"data\": \"[DONE]\"}"
+                        yield "event: [DONE]{\"data\": \"[DONE]\",\"type\": 1}"
                         break
                     # 确保yield的数据格式正确
                     try:
                         data = json.loads(line)
-                        data_with_type = {"data": data, "type": 1}
-                        yield f"data: {json.dumps(data_with_type)}"
+                        data_with_type = ({"data": data, "type": 1})
+                        yield f"{json.dumps(data_with_type)}"
                     except json.JSONDecodeError:
-                        yield f"data: {{\"error\": \"Invalid JSON format in response\"}}"
+                        yield f"{{\"error\": \"Invalid JSON format in response\"}}"
                 print("考勤API调用成功，响应数据:", line)
     except aiohttp.ClientError as e:
         yield f"data: {{\"error\": \"{str(e)}\"}}"
@@ -135,7 +136,7 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id)
                 async for line in response.content:
                     line = line.decode('utf-8').strip()
                     if "data:[DONE]" in line:
-                        yield "event: [DONE]: {\"data\": \"[DONE]\", \"type\": 2}"
+                        yield json.dumps({"data": "[DONE]", "type": 2})
                         break
                     if line:
                         try:
@@ -143,24 +144,22 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id)
                             data_str = re.sub(r'^data: ', '', line)
                             data = json.loads(data_str)
                             answer = ""
-                            if stream:
-                                # 直接yield包含"docs"的完整数据字典
-                                if "docs" in data:
-                                    yield json.dumps(data)
-                                # 继续处理"data:[summary]"等其他情况
-                                elif "data:[summary]" in data:
-                                    summary_content = data.get("data:[summary]")
-                                    # 构造一个新的字典，包含"type"字段
-                                    yield json.dumps({"data": summary_content, "type": 2})
+                            # 统一数据格式输出
+                            if "docs" in data:
+                                yield json.dumps({"data": data, "type": 2})
+                            elif "data:[summary]" in data:
+                                summary_content = data.get("data:[summary]")
+                                yield json.dumps({"data": "data:[summary]" + summary_content, "type": 2})
                             else:
                                 async for token in data:
                                     answer += token
-                                yield json.dumps({"data:[summary]": answer,
-                                                  "docs": data})
+                                yield json.dumps({"data": "data:[summary]" + answer,
+                                                  "docs": data, "type": 2})
                         except json.JSONDecodeError:
-                            print(f"Invalid JSON: {line}")
+                            # 发生JSON解码错误时，yield错误信息及类型
+                            yield json.dumps({"data": f"Invalid JSON: {line}", "type": 4})
             except asyncio.CancelledError:
-                print(f"Error")
+                print(f"Request cancelled.")
 
 
 if __name__ == '__main__':
