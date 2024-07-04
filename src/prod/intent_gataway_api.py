@@ -142,19 +142,17 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id)
                         try:
                             # 假设每行都是有效的JSON数据前缀以"data: "
                             data_str = re.sub(r'^data: ', '', line)
-                            data = json.loads(data_str)
                             answer = ""
                             # 统一数据格式输出
-                            if "docs" in data:
-                                yield json.dumps({"data": data, "type": 2})
-                            elif "data:[summary]" in data:
-                                summary_content = data.get("data:[summary]")
-                                yield json.dumps({"data": "data:[summary]" + summary_content, "type": 2})
+                            if "docs" in data_str:
+                                yield json.dumps({"data": data_str, "type": 2})
+                            elif "data:[summary]" in data_str:
+                                yield json.dumps({"data": data_str, "type": 2})
                             else:
-                                async for token in data:
+                                async for token in data_str:
                                     answer += token
-                                yield json.dumps({"data": "data:[summary]" + answer,
-                                                  "docs": data, "type": 2})
+                                yield json.dumps({"data": answer,
+                                                  "docs": data_str, "type": 2})
                         except json.JSONDecodeError:
                             # 发生JSON解码错误时，yield错误信息及类型
                             yield json.dumps({"data": f"Invalid JSON: {line}", "type": 4})
