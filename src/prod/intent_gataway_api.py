@@ -12,7 +12,8 @@ from sse_starlette.sse import EventSourceResponse
 # 创建FastApi实例
 app = FastAPI()
 # 常量定义如下：
-ATTENDANCE_BASE_URL = "http://192.168.204.198:60001/execute_sql_stream?"  # 考勤
+ATTENDANCE_BASE_URL_GET = "http://192.168.204.198:60001/execute_sql_stream?"  # 考勤
+ATTENDANCE_BASE_URL_POST = "http://192.168.204.198:60001/execute_sql_stream"  # 考勤
 KNOWLEDGE_BASE_URL = "http://192.168.102.95:7861/chat/knowledge_base_chat"  # 知识库
 ILLEGAL_AUTH_REFUSE = "很抱歉，根据您提供的查询条件，你不具有查询考勤的权限。建议您申请权限后再尝试查询。"
 # 权限校验，根据用户角色和查询类型校验用户是否有权限进行访问
@@ -24,6 +25,7 @@ auth_role_allown_map = {"attendance": ["Boss", "Assistant", "HR"],
 class RequestBody(BaseModel):
     question: str
     user_id: str
+    user_no: str
     user_role: str
     topic_id: str
 
@@ -32,6 +34,7 @@ class RequestBody(BaseModel):
 async def user_intent_recognize(request_body: RequestBody = Body(...)):
     question = request_body.question
     user_id = request_body.user_id
+    user_no = request_body.user_no
     user_role = request_body.user_role
     topic_id = request_body.topic_id
     stream = False
@@ -68,10 +71,10 @@ async def user_intent_recognize(request_body: RequestBody = Body(...)):
     res = client.chat(prompt=prompt, sys_prompt=sys_prompt, generate_config=generate_config)
     print("res: " + str(res))
     if '考勤数据查询助理' in res:
-        return EventSourceResponse(call_third_party_attendance_api(question, user_id, user_role, topic_id),
+        return EventSourceResponse(call_third_party_attendance_api(question, user_id, user_role, topic_id, user_no),
                                    media_type="text/event-stream")
     if '知识库助理' in res:
-        return EventSourceResponse(call_third_party_knowledge_api(question, user_id, user_role, topic_id),
+        return EventSourceResponse(call_third_party_knowledge_api(question, user_id, user_role, topic_id, user_no),
                                    media_type="text/event-stream")
     else:
         def chat_stream_generator():
@@ -87,20 +90,20 @@ def check_auth_role(agency_type, user_role):
     return allown_role_list is None or user_role in allown_role_list
 
 
-async def call_third_party_attendance_api(question, user_id, user_role, topic_id):
+async def call_third_party_attendance_api(question, user_id, user_role, topic_id, user_no):
     if not check_auth_role("attendance", user_role):
         raise HTTPException(status_code=403, detail=ILLEGAL_AUTH_REFUSE)
     params = {
         "question": question,
         "userId": user_id,
+        "userNo": user_no,
         "userRole": user_role,
         "topicId": topic_id,
     }
     try:
-        query_params = urlencode(params)
-        final_url = f"{ATTENDANCE_BASE_URL}{query_params}"
+        headers = {'Content-Type': 'application/json'}
         async with aiohttp.ClientSession() as session:
-            async with session.get(final_url) as response:
+            async with session.post(ATTENDANCE_BASE_URL_POST, json=params, headers=headers) as response:
                 print(f"response: {response}")
                 async for line in response.content:
                     line = line.decode('utf-8').strip()
@@ -110,8 +113,8 @@ async def call_third_party_attendance_api(question, user_id, user_role, topic_id
                         break
                     # 确保yield的数据格式正确
                     try:
-                        data = json.loads(line)
-                        data_with_type = ({"data": data, "type": 1})
+                        # data = json.loads(line)
+                        data_with_type = ({"data": line, "type": 1})
                         yield f"{json.dumps(data_with_type)}"
                     except json.JSONDecodeError:
                         yield f"{{\"error\": \"Invalid JSON format in response\"}}"
@@ -121,10 +124,11 @@ async def call_third_party_attendance_api(question, user_id, user_role, topic_id
 
 
 # 知识库 2024年7月1日14:56:29
-async def call_third_party_knowledge_api(question, user_id, user_role, topic_id):
+async def call_third_party_knowledge_api(question, user_id, user_role, topic_id, user_no):
     params = {
         "query": question,
         "userId": user_id,
+        "userNo": user_no,
         "topicId": topic_id,
         "userRole": user_role,
     }

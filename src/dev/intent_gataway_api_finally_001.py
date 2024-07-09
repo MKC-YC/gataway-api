@@ -96,7 +96,7 @@ async def call_third_party_attendance_api(question, user_id, user_role, topic_id
     params = {
         "question": question,
         "userId": user_id,
-        "userNo": user_no,
+        "userNO": user_no,
         "userRole": user_role,
         "topicId": topic_id,
     }
@@ -128,7 +128,7 @@ async def call_third_party_knowledge_api(question, user_id, user_role, topic_id,
     params = {
         "query": question,
         "userId": user_id,
-        "userNo": user_no,
+        "user_no": user_no,
         "topicId": topic_id,
         "userRole": user_role,
     }
